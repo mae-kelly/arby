@@ -1,2 +1,0 @@
-cargo:rerun-if-env-changed=PYO3_CONFIG_FILE
-cargo:rerun-if-changed=/Users/maevekelly/Downloads/ay/flashloans-lab/rust-core/target/maturin/pyo3-config-aarch64-apple-darwin-3.7.txt
