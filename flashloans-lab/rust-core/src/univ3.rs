@@ -1,11 +1,9 @@
-// File: src/univ3.rs
 //! UniswapV3 concentrated liquidity AMM math - Production Ready
 
-use num_bigint::{BigUint, ToBigUint};
+use num_bigint::BigUint;
 use num_traits::{One, ToPrimitive, Zero};
 
 const Q96: u128 = 0x1000000000000000000000000; // 2^96
-// Note: Q128 exceeds u128 max, using BigUint for calculations requiring it
 
 /// Full tick information
 #[derive(Debug, Clone)]
@@ -366,10 +364,13 @@ pub fn get_tick_at_sqrt_ratio(sqrt_price_x96: u128) -> Result<i32, &'static str>
         r >>= f * shift;
     }
     
-    let log_2 = (msb as i32 - 128) << 64;
+    // Fix: Use i128 directly to avoid overflow
+    // The value (msb - 128) << 64 needs to be calculated in i128 space
+    let msb_adjusted = (msb as i128) - 128;
+    let log_2 = msb_adjusted.wrapping_shl(64);
     
     // Calculate log base 1.0001
-    let log_base = (log_2 as f64 / 64.0) / (10000_f64.ln() / 9999_f64.ln());
+    let log_base = (log_2 as f64 / (1i128 << 64) as f64) / (10000_f64.ln() / 9999_f64.ln());
     let tick = log_base.floor() as i32;
     
     Ok(tick)
@@ -383,8 +384,8 @@ pub fn get_sqrt_ratio_at_tick(tick: i32) -> Result<u128, &'static str> {
     
     let abs_tick = tick.abs() as u32;
     
-    // Q128 as BigUint
-    let q128 = BigUint::from(1u8) << 128;
+    // Q128 as BigUint with explicit type
+    let q128: BigUint = BigUint::from(1u8) << 128;
     
     let mut ratio = if abs_tick & 0x1 != 0 {
         BigUint::from(0xfffcb933bd6fad37aa2d162d1a594001u128)
@@ -425,8 +426,8 @@ pub fn get_sqrt_ratio_at_tick(tick: i32) -> Result<u128, &'static str> {
         ratio = BigUint::from(u128::MAX) / ratio;
     }
     
-    // Return sqrt(ratio)
-    let sqrt_price_x96: BigUint = (ratio >> 32) + if ratio.clone() % (BigUint::one() << 32) == BigUint::zero() { 
+    // Clone ratio before the shift operation to avoid move
+    let sqrt_price_x96: BigUint = (ratio.clone() >> 32) + if ratio % (BigUint::one() << 32) == BigUint::zero() { 
         BigUint::zero() 
     } else { 
         BigUint::one() 

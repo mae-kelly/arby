@@ -7,7 +7,10 @@ edition = "2021"
 ethers = "2.0"
 num-bigint = "0.4"
 num-traits = "0.2"
-pyo3 = { version = "0.20", features = ["extension-module"] }
+
+[dependencies.pyo3]
+version = "0.20"
+features = ["extension-module", "abi3-py37"]
 
 [lib]
 name = "flashloans_core"

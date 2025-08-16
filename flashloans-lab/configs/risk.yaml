@@ -1,0 +1,20 @@
+# Global risk parameters
+min_ev_native: 0.005
+max_price_impact_bps: 30
+max_gas_native: 0.002
+reject_transfer_tax: true
+
+# Token blacklist
+token_blacklist:
+  - "0x0000000000000000000000000000000000000000"
+
+# Per-family overrides
+family_overrides:
+  1:  # DEX Arb
+    max_position_size: 100
+    
+  2:  # Flash loans
+    max_loan_size: 1000
+    
+  3:  # Liquidations
+    min_health_factor: 0.95

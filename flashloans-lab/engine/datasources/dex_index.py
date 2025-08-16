@@ -1,117 +1,145 @@
+"""DEX pool discovery and indexing"""
 import asyncio
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
-from decimal import Decimal
-import json
-from .evm_rpc import EVMRPCClient
+from typing import Dict, List, Set
+import pandas as pd
+from datetime import datetime, timedelta
 
-@dataclass
-class PoolInfo:
-    address: str
-    token0: str
-    token1: str
-    fee: int
-    pool_type: str  # 'uniswap_v2', 'uniswap_v3', 'solidly'
-    reserve0: Optional[int] = None
-    reserve1: Optional[int] = None
-    sqrt_price_x96: Optional[int] = None
-    liquidity: Optional[int] = None
-    tick: Optional[int] = None
-
-class DEXIndexer:
-    def __init__(self, rpc_client: EVMRPCClient):
-        self.rpc = rpc_client
-        self.pools: Dict[str, PoolInfo] = {}
+class DEXIndex:
+    def __init__(self, rpcs: Dict[str, 'EVMRPCClient']):
+        self.rpcs = rpcs
+        self.pools = pd.DataFrame()
+        self.hot_pools = set()
         
-    async def index_uniswap_v2_pool(self, pool_address: str) -> PoolInfo:
-        """Index a Uniswap V2 style pool"""
-        # Get reserves
-        reserves_data = await self.rpc.call_contract(
-            pool_address, 
-            "0x0902f1ac"  # getReserves()
-        )
+    async def initialize(self):
+        """Discover all pools from allowlisted factories"""
+        print("Initializing DEX index...")
         
-        reserve0 = int(reserves_data[2:66], 16)
-        reserve1 = int(reserves_data[66:130], 16)
+        # Factory addresses by chain
+        factories = {
+            'base': {
+                'univ2': ['0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6'],  # BaseSwap
+                'univ3': ['0x33128a8fC17869897dcE68Ed026d694621f6FDfD'],  # UniV3
+                'curve': [],  # Add Curve factories
+            },
+            'arbitrum': {
+                'univ2': ['0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9'],  # Camelot
+                'univ3': ['0x1F98431c8aD98523631AE4a59f267346ea31F984'],  # UniV3
+                'curve': ['0xF18056Bbd320E96A48e3Fbf8bC061322531aac99'],  # Curve
+            }
+        }
         
-        # Get token addresses
-        token0_data = await self.rpc.call_contract(pool_address, "0x0dfe1681")
-        token1_data = await self.rpc.call_contract(pool_address, "0xd21220a7")
+        all_pools = []
         
-        token0 = "0x" + token0_data[-40:]
-        token1 = "0x" + token1_data[-40:]
-        
-        pool = PoolInfo(
-            address=pool_address,
-            token0=token0,
-            token1=token1,
-            fee=300,  # 0.3% standard
-            pool_type="uniswap_v2",
-            reserve0=reserve0,
-            reserve1=reserve1
-        )
-        
-        self.pools[pool_address] = pool
-        return pool
-    
-    async def index_uniswap_v3_pool(self, pool_address: str) -> PoolInfo:
-        """Index a Uniswap V3 pool"""
-        # Get slot0
-        slot0_data = await self.rpc.call_contract(
-            pool_address,
-            "0x3850c7bd"  # slot0()
-        )
-        
-        sqrt_price_x96 = int(slot0_data[2:66], 16)
-        tick = int.from_bytes(bytes.fromhex(slot0_data[66:130]), 'big', signed=True)
-        
-        # Get liquidity
-        liquidity_data = await self.rpc.call_contract(pool_address, "0x1a686502")
-        liquidity = int(liquidity_data[2:66], 16)
-        
-        # Get fee
-        fee_data = await self.rpc.call_contract(pool_address, "0xddca3f43")
-        fee = int(fee_data[2:66], 16)
-        
-        # Get tokens
-        token0_data = await self.rpc.call_contract(pool_address, "0x0dfe1681")
-        token1_data = await self.rpc.call_contract(pool_address, "0xd21220a7")
-        
-        token0 = "0x" + token0_data[-40:]
-        token1 = "0x" + token1_data[-40:]
-        
-        pool = PoolInfo(
-            address=pool_address,
-            token0=token0,
-            token1=token1,
-            fee=fee,
-            pool_type="uniswap_v3",
-            sqrt_price_x96=sqrt_price_x96,
-            liquidity=liquidity,
-            tick=tick
-        )
-        
-        self.pools[pool_address] = pool
-        return pool
-    
-    async def refresh_pool_state(self, pool_address: str) -> PoolInfo:
-        """Refresh pool state data"""
-        if pool_address not in self.pools:
-            raise ValueError(f"Pool {pool_address} not indexed")
+        for chain, chain_factories in factories.items():
+            if chain not in self.rpcs:
+                continue
+                
+            rpc = self.rpcs[chain]
             
-        pool = self.pools[pool_address]
+            # Discover UniV2 pairs
+            for factory in chain_factories.get('univ2', []):
+                pools = await self._discover_univ2_pairs(rpc, factory)
+                for pool in pools:
+                    pool['chain'] = chain
+                    all_pools.append(pool)
+            
+            # Discover UniV3 pools
+            for factory in chain_factories.get('univ3', []):
+                pools = await self._discover_univ3_pools(rpc, factory)
+                for pool in pools:
+                    pool['chain'] = chain
+                    all_pools.append(pool)
         
-        if pool.pool_type == "uniswap_v2":
-            return await self.index_uniswap_v2_pool(pool_address)
-        elif pool.pool_type == "uniswap_v3":
-            return await self.index_uniswap_v3_pool(pool_address)
-        else:
-            raise NotImplementedError(f"Pool type {pool.pool_type} not implemented")
+        self.pools = pd.DataFrame(all_pools)
+        print(f"Indexed {len(self.pools)} pools across {len(factories)} chains")
+        
+        # Mark hot pools (high volume/TVL)
+        if len(self.pools) > 0:
+            self.hot_pools = set(self.pools.nlargest(100, 'tvl_usd')['address'].values)
     
-    async def get_pools_for_tokens(self, token0: str, token1: str) -> List[PoolInfo]:
-        """Get all pools for a token pair"""
-        return [
-            pool for pool in self.pools.values()
-            if (pool.token0.lower() == token0.lower() and pool.token1.lower() == token1.lower()) or
-               (pool.token0.lower() == token1.lower() and pool.token1.lower() == token0.lower())
+    async def _discover_univ2_pairs(self, rpc, factory_address: str) -> List[dict]:
+        """Discover UniV2-style pairs from factory"""
+        pools = []
+        
+        # Get pair count from factory
+        factory_abi = [
+            {"constant":True,"inputs":[],"name":"allPairsLength","outputs":[{"name":"","type":"uint256"}],"type":"function"},
+            {"constant":True,"inputs":[{"name":"","type":"uint256"}],"name":"allPairs","outputs":[{"name":"","type":"address"}],"type":"function"}
         ]
+        
+        try:
+            contract = rpc.w3.eth.contract(address=factory_address, abi=factory_abi)
+            pair_count = await contract.functions.allPairsLength().call()
+            
+            # Get last 100 pairs (most recent/active)
+            start = max(0, pair_count - 100)
+            for i in range(start, min(pair_count, start + 100)):
+                pair_address = await contract.functions.allPairs(i).call()
+                pool_state = await rpc.get_pool_state(pair_address, 'univ2')
+                
+                pools.append({
+                    'address': pair_address,
+                    'type': 'univ2',
+                    'factory': factory_address,
+                    'token0': pool_state['token0'],
+                    'token1': pool_state['token1'],
+                    'reserve0': pool_state['reserve0'],
+                    'reserve1': pool_state['reserve1'],
+                    'tvl_usd': 0,  # Would calculate from reserves * prices
+                    'discovered_at': datetime.now()
+                })
+        except Exception as e:
+            print(f"Error discovering UniV2 pairs: {e}")
+        
+        return pools
+    
+    async def _discover_univ3_pools(self, rpc, factory_address: str) -> List[dict]:
+        """Discover UniV3 pools from factory events"""
+        pools = []
+        
+        # Query PoolCreated events
+        factory_abi = [
+            {"anonymous":False,"inputs":[
+                {"indexed":True,"name":"token0","type":"address"},
+                {"indexed":True,"name":"token1","type":"address"},
+                {"indexed":True,"name":"fee","type":"uint24"},
+                {"indexed":False,"name":"tickSpacing","type":"int24"},
+                {"indexed":False,"name":"pool","type":"address"}
+            ],"name":"PoolCreated","type":"event"}
+        ]
+        
+        try:
+            contract = rpc.w3.eth.contract(address=factory_address, abi=factory_abi)
+            
+            # Get recent pool creation events
+            from_block = await rpc.get_block_number() - 10000  # Last ~10k blocks
+            events = await contract.events.PoolCreated.get_logs(fromBlock=from_block)
+            
+            for event in events[-50:]:  # Last 50 pools
+                pool_address = event['args']['pool']
+                pool_state = await rpc.get_pool_state(pool_address, 'univ3')
+                
+                pools.append({
+                    'address': pool_address,
+                    'type': 'univ3',
+                    'factory': factory_address,
+                    'token0': event['args']['token0'],
+                    'token1': event['args']['token1'],
+                    'fee': event['args']['fee'],
+                    'tick': pool_state['tick'],
+                    'liquidity': pool_state['liquidity'],
+                    'tvl_usd': 0,
+                    'discovered_at': datetime.now()
+                })
+        except Exception as e:
+            print(f"Error discovering UniV3 pools: {e}")
+        
+        return pools
+    
+    async def get_active_pools(self) -> pd.DataFrame:
+        """Get currently active pools with fresh state"""
+        # Refresh hot pools every N seconds
+        for pool_address in self.hot_pools:
+            # Would refresh state here
+            pass
+        return self.pools[self.pools['address'].isin(self.hot_pools)]

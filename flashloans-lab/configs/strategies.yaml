@@ -1,0 +1,16 @@
+strategies:
+  a1_univ2_univ3:
+    enabled: true
+    min_edge_bps: 6
+    max_hops: 2
+    min_liquidity_usd: 50000
+    
+  a10_triangular:
+    enabled: true
+    min_edge_bps: 8
+    tokens: ["WETH", "USDC", "USDT", "DAI", "WBTC"]
+    
+  c27_aave_liquidation:
+    enabled: true
+    min_bonus_bps: 300
+    max_close_factor: 0.5

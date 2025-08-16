@@ -1,48 +1,49 @@
-import os
-from dataclasses import dataclass, field
+"""Configuration management for the bot"""
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 import yaml
+import os
+from pathlib import Path
 
 @dataclass
-class ChainConfig:
-    name: str
-    rpc_url: str
-    chain_id: int
-    gas_multiplier: float = 1.0
-    block_time: float = 2.0
-    
-@dataclass
-class StrategyConfig:
-    enabled: bool = True
-    min_edge_bps: int = 5
-    max_hops: int = 3
-    max_gas: int = 500000
-    pool_depth_floor: int = 10000
-    
-@dataclass
 class Config:
-    chains: Dict[str, ChainConfig] = field(default_factory=dict)
-    strategies: Dict[str, StrategyConfig] = field(default_factory=dict)
-    risk_limits: Dict[str, float] = field(default_factory=lambda: {
-        'max_drawdown_pct': 5.0,
-        'kelly_fraction': 0.25,
-        'var_confidence': 0.95
-    })
+    # Chain settings
+    chains: Dict[str, dict]
+    
+    # Strategy settings
+    strategies: Dict[str, dict]
+    
+    # Risk settings
+    min_ev_native: float = 0.005
+    max_price_impact_bps: int = 30
+    max_gas_native: float = 0.002
+    reject_transfer_tax: bool = True
+    token_blacklist: List[str] = None
+    
+    # Execution settings
+    loop_seconds: int = 2
+    simulation_threads: int = 4
     
     @classmethod
-    def load(cls, config_dir: str = "configs") -> "Config":
-        config = cls()
+    def load(cls, path: str = 'configs/config.yaml') -> 'Config':
+        """Load configuration from YAML files"""
+        config_data = {}
         
-        # Load chain configs
-        with open(f"{config_dir}/chains.yaml", "r") as f:
-            chain_data = yaml.safe_load(f)
-            for name, data in chain_data["chains"].items():
-                config.chains[name] = ChainConfig(**data)
+        # Load all config files
+        config_dir = Path('configs')
+        for config_file in ['chains.yaml', 'strategies.yaml', 'risk.yaml']:
+            file_path = config_dir / config_file
+            if file_path.exists():
+                with open(file_path) as f:
+                    data = yaml.safe_load(f)
+                    config_data.update(data)
         
-        # Load strategy configs
-        with open(f"{config_dir}/strategies.yaml", "r") as f:
-            strategy_data = yaml.safe_load(f)
-            for name, data in strategy_data["strategies"].items():
-                config.strategies[name] = StrategyConfig(**data)
-                
-        return config
+        # Override with environment variables
+        if os.getenv('MIN_EV_NATIVE'):
+            config_data['min_ev_native'] = float(os.getenv('MIN_EV_NATIVE'))
+        
+        return cls(**config_data)
+    
+    def get_rpc(self, chain: str) -> str:
+        """Get RPC endpoint for chain"""
+        return self.chains.get(chain, {}).get('rpc')

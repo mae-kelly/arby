@@ -1,205 +1,183 @@
+"""Trade simulation engine"""
+from dataclasses import dataclass
+from typing import Dict, Optional, List
 import asyncio
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
-from decimal import Decimal
-import time
-import random
-from ..pricing.route_search import Route
-from ..datasources.gas_tracker import GasEstimate
 
 @dataclass
-class CandidateTrade:
-    strategy_name: str
-    route: Route
-    flash_loan_amount: int
-    flash_loan_token: str
-    expected_profit: int
-    gas_estimate: int
-    confidence: float = 0.8
-    timestamp: float = field(default_factory=time.time)
-    
-@dataclass
-class SimulationResult:
-    trade: CandidateTrade
-    success: bool
-    realized_profit: int
-    gas_cost: int
-    flash_loan_fee: int
-    slippage_cost: int
-    latency_penalty: int
-    total_cost: int
-    net_pnl: int
-    execution_time_ms: float
-    revert_probability: float
-    fill_probability: float
-    diagnostics: Dict[str, any] = field(default_factory=dict)
+class Candidate:
+    strategy_id: str
+    route: List[str]
+    token_in: str
+    token_out: str
+    amount_in: int
+    chain: str
+    meta: dict
 
-class ExecutionSimulator:
+@dataclass
+class SimResult:
+    ok: bool
+    pnl_native: float
+    gas_native: float
+    loan_fee_native: float
+    slippage_bps: float
+    diagnostics: dict
+    call_data: Optional[bytes] = None
+
+class Simulator:
     def __init__(self, config):
         self.config = config
-        self.slippage_model = SlippageModel()
-        self.gas_model = GasModel()
-        self.latency_model = LatencyModel()
         
-    async def simulate_trade(self, 
-                           trade: CandidateTrade, 
-                           gas_estimate: GasEstimate,
-                           current_block: int) -> SimulationResult:
-        """Simulate complete trade execution"""
+    async def simulate(self, candidate: Candidate, state: dict) -> SimResult:
+        """Simulate a trade candidate"""
         
-        start_time = time.time()
+        # Calculate flash loan fee if needed
+        loan_fee = 0
+        if candidate.meta.get('use_flash_loan'):
+            # Aave: 0.05%, Balancer: 0%
+            provider = candidate.meta.get('flash_provider', 'aave')
+            if provider == 'aave':
+                loan_fee = candidate.amount_in * 0.0005
+            elif provider == 'balancer':
+                loan_fee = 0
         
-        # 1. Calculate gas costs
-        gas_cost = self.gas_model.calculate_gas_cost(
-            trade.gas_estimate, gas_estimate.max_fee
+        # Estimate gas cost
+        gas_units = self._estimate_gas_units(candidate)
+        gas_price = state['gas'].get(candidate.chain, 20e9)
+        gas_native = (gas_units * gas_price) / 1e18
+        
+        # Calculate AMM output with slippage
+        gross_output = await self._calculate_output(candidate, state)
+        
+        # Apply price impact
+        impact_bps = self._estimate_impact(candidate, state)
+        net_output = gross_output * (1 - impact_bps / 10000)
+        
+        # Calculate profit
+        input_value = self._get_token_value(candidate.token_in, candidate.amount_in, state)
+        output_value = self._get_token_value(candidate.token_out, net_output, state)
+        
+        pnl_native = output_value - input_value - gas_native - loan_fee
+        
+        # Success criteria
+        ok = (
+            pnl_native >= self.config.min_ev_native and
+            impact_bps < self.config.max_price_impact_bps and
+            gas_native < self.config.max_gas_native
         )
         
-        # 2. Calculate flash loan fees
-        flash_loan_fee = self._calculate_flash_loan_fee(
-            trade.flash_loan_amount, trade.flash_loan_token
-        )
-        
-        # 3. Model slippage impact
-        slippage_cost = self.slippage_model.calculate_slippage_cost(trade.route)
-        
-        # 4. Model latency/MEV impact
-        latency_penalty = self.latency_model.calculate_latency_penalty(
-            trade, current_block
-        )
-        
-        # 5. Calculate revert probability
-        revert_prob = self._calculate_revert_probability(trade, gas_estimate)
-        
-        # 6. Calculate fill probability
-        fill_prob = self._calculate_fill_probability(trade, gas_estimate)
-        
-        # 7. Determine if trade would succeed
-        total_cost = gas_cost + flash_loan_fee + slippage_cost + latency_penalty
-        realized_profit = max(0, trade.expected_profit - slippage_cost - latency_penalty)
-        net_pnl = realized_profit - total_cost
-        
-        # Trade succeeds if profitable after all costs and random factors
-        success = (
-            net_pnl > 0 and 
-            random.random() > revert_prob and
-            random.random() < fill_prob
-        )
-        
-        execution_time = (time.time() - start_time) * 1000  # ms
-        
-        return SimulationResult(
-            trade=trade,
-            success=success,
-            realized_profit=realized_profit,
-            gas_cost=gas_cost,
-            flash_loan_fee=flash_loan_fee,
-            slippage_cost=slippage_cost,
-            latency_penalty=latency_penalty,
-            total_cost=total_cost,
-            net_pnl=net_pnl,
-            execution_time_ms=execution_time,
-            revert_probability=revert_prob,
-            fill_probability=fill_prob,
+        return SimResult(
+            ok=ok,
+            pnl_native=pnl_native,
+            gas_native=gas_native,
+            loan_fee_native=loan_fee,
+            slippage_bps=impact_bps,
             diagnostics={
-                'route_hops': len(trade.route.hops),
-                'price_impact': trade.route.calculate_price_impact(),
-                'gas_efficiency': realized_profit / gas_cost if gas_cost > 0 else 0
-            }
+                'gross_output': gross_output,
+                'net_output': net_output,
+                'input_value': input_value,
+                'output_value': output_value
+            },
+            call_data=self._build_calldata(candidate) if ok else None
         )
+    
+    def _estimate_gas_units(self, candidate: Candidate) -> int:
+        """Estimate gas units for transaction"""
+        base_gas = 21000
         
-    def _calculate_flash_loan_fee(self, amount: int, token: str) -> int:
-        """Calculate flash loan fees from different protocols"""
-        # Aave v3: 0.05% (5 bps)
-        aave_fee = amount * 5 // 10000
-        
-        # Balancer: 0% (but opportunity cost of gas)
-        balancer_fee = 0
-        
-        # Return conservative estimate (Aave)
-        return aave_fee
-        
-    def _calculate_revert_probability(self, 
-                                    trade: CandidateTrade, 
-                                    gas_estimate: GasEstimate) -> float:
-        """Estimate probability of transaction reverting"""
-        base_revert_rate = 0.02  # 2% base failure rate
-        
-        # Higher revert probability for:
-        # - More complex routes
-        complexity_factor = len(trade.route.hops) * 0.005
-        
-        # - Lower gas prices (less likely to be included)
-        gas_factor = max(0, (1.0 - gas_estimate.confidence) * 0.1)
-        
-        # - Higher price impact
-        impact_factor = trade.route.calculate_price_impact() * 0.05
-        
-        return min(0.5, base_revert_rate + complexity_factor + gas_factor + impact_factor)
-        
-    def _calculate_fill_probability(self,
-                                  trade: CandidateTrade,
-                                  gas_estimate: GasEstimate) -> float:
-        """Estimate probability of trade being filled"""
-        base_fill_rate = 0.85  # 85% base fill rate
-        
-        # Higher fill probability for:
-        # - Higher gas prices
-        gas_bonus = gas_estimate.confidence * 0.1
-        
-        # - Lower complexity
-        complexity_penalty = (len(trade.route.hops) - 1) * 0.05
-        
-        # - Higher confidence
-        confidence_bonus = trade.confidence * 0.05
-        
-        return max(0.1, min(0.98, 
-            base_fill_rate + gas_bonus - complexity_penalty + confidence_bonus
-        ))
-
-class SlippageModel:
-    def __init__(self):
-        self.base_slippage_bps = 1  # 1 bps base slippage
-        
-    def calculate_slippage_cost(self, route: Route) -> int:
-        """Calculate slippage cost for route"""
-        price_impact = route.calculate_price_impact()
-        
-        # Slippage increases quadratically with price impact
-        slippage_rate = self.base_slippage_bps + (price_impact * 100) ** 1.5
-        slippage_rate = min(slippage_rate, 500)  # Cap at 5%
-        
-        return int(route.total_amount_out * slippage_rate / 10000)
-        
-class GasModel:
-    def __init__(self):
-        # Gas costs for different operations (rough estimates)
-        self.gas_costs = {
-            'flash_loan': 50000,
-            'swap_v2': 100000,
-            'swap_v3': 150000, 
-            'transfer': 21000,
-            'approval': 45000
+        # Per-swap costs
+        swap_costs = {
+            'univ2': 75000,
+            'univ3': 140000,
+            'curve': 150000,
+            'balancer': 120000
         }
         
-    def calculate_gas_cost(self, estimated_gas: int, gas_price_wei: int) -> int:
-        """Calculate total gas cost in wei"""
-        # Add 10% buffer to gas estimate
-        actual_gas = int(estimated_gas * 1.1)
-        return actual_gas * gas_price_wei
-
-class LatencyModel:
-    def __init__(self):
-        self.block_time = 12.0  # seconds
+        total_gas = base_gas
+        for pool in candidate.route:
+            pool_type = candidate.meta.get(f'{pool}_type', 'univ2')
+            total_gas += swap_costs.get(pool_type, 100000)
         
-    def calculate_latency_penalty(self, trade: CandidateTrade, current_block: int) -> int:
-        """Calculate penalty due to block inclusion delays"""
-        # Assume 1 block delay on average
-        expected_delay_blocks = 1.0
+        # Flash loan overhead
+        if candidate.meta.get('use_flash_loan'):
+            total_gas += 50000
         
-        # Price decay rate: 0.1% per block for volatile pairs
-        decay_rate_per_block = 0.001
+        return total_gas
+    
+    async def _calculate_output(self, candidate: Candidate, state: dict) -> float:
+        """Calculate output amount through route"""
+        amount = candidate.amount_in
         
-        total_decay = expected_delay_blocks * decay_rate_per_block
-        penalty = int(trade.expected_profit * total_decay)
+        for pool_address in candidate.route:
+            pool = self._get_pool_state(pool_address, state)
+            if pool['type'] == 'univ2':
+                amount = self._univ2_output(amount, pool)
+            elif pool['type'] == 'univ3':
+                amount = self._univ3_output(amount, pool)
+            # Add other pool types
         
-        return min(penalty, trade.expected_profit // 2)  # Cap at 50% of profit
+        return amount
+    
+    def _univ2_output(self, amount_in: float, pool: dict) -> float:
+        """UniV2 x*y=k formula"""
+        reserve_in = pool['reserve0']
+        reserve_out = pool['reserve1']
+        
+        amount_in_with_fee = amount_in * 997  # 0.3% fee
+        numerator = amount_in_with_fee * reserve_out
+        denominator = reserve_in * 1000 + amount_in_with_fee
+        
+        return numerator / denominator
+    
+    def _univ3_output(self, amount_in: float, pool: dict) -> float:
+        """Simplified UniV3 output calculation"""
+        # Would implement full tick math here
+        # For now, approximate with constant product
+        fee_tier = pool['fee'] / 1e6  # Convert to decimal
+        amount_after_fee = amount_in * (1 - fee_tier)
+        
+        # Simplified - would traverse ticks in production
+        sqrt_price = pool['sqrtPriceX96'] / (2**96)
+        price = sqrt_price ** 2
+        
+        return amount_after_fee / price
+    
+    def _estimate_impact(self, candidate: Candidate, state: dict) -> float:
+        """Estimate price impact in basis points"""
+        # Simplified impact model
+        # Would use depth/liquidity analysis in production
+        
+        trade_size = candidate.amount_in
+        pool_liquidity = 1e6  # Would get from state
+        
+        # Square root impact model
+        impact_ratio = (trade_size / pool_liquidity) ** 0.5
+        impact_bps = min(impact_ratio * 100, 1000)  # Cap at 10%
+        
+        return impact_bps
+    
+    def _get_token_value(self, token: str, amount: float, state: dict) -> float:
+        """Get value in native token (ETH)"""
+        # Would use price oracles here
+        prices = {
+            'USDC': 0.0004,  # 1 USDC = 0.0004 ETH
+            'USDT': 0.0004,
+            'DAI': 0.0004,
+            'WETH': 1.0,
+            'WBTC': 15.0
+        }
+        
+        return amount * prices.get(token, 0.0001)
+    
+    def _get_pool_state(self, address: str, state: dict) -> dict:
+        """Get pool state from snapshot"""
+        pools_df = state.get('pools', pd.DataFrame())
+        if not pools_df.empty:
+            pool = pools_df[pools_df['address'] == address]
+            if not pool.empty:
+                return pool.iloc[0].to_dict()
+        return {}
+    
+    def _build_calldata(self, candidate: Candidate) -> bytes:
+        """Build transaction calldata"""
+        # Would encode actual contract calls here
+        return b'0x'
