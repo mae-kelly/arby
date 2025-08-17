@@ -356,3 +356,28 @@ def main():
 
 if __name__ == "__main__":
     main()
+# Add MEV Hunter integration
+from mev_hunter import AdvancedMEVHunter
+
+class EnhancedOrchestrator(HyperOptimizedOrchestrator):
+    def __init__(self):
+        super().__init__()
+        self.mev_hunter = AdvancedMEVHunter()
+        
+    async def run_with_mev(self):
+        """Run orchestrator with MEV hunting"""
+        
+        # Start MEV hunter in parallel
+        mev_task = asyncio.create_task(self.mev_hunter.start_hunting())
+        
+        # Start original orchestrator
+        main_task = asyncio.create_task(super().run())
+        
+        # Run both together
+        await asyncio.gather(mev_task, main_task, return_exceptions=True)
+
+# Replace main function
+def main():
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    orchestrator = EnhancedOrchestrator()
+    asyncio.run(orchestrator.run_with_mev())

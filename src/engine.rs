@@ -1,398 +1,451 @@
 use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, BinaryHeap};
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc, broadcast};
 use rayon::prelude::*;
 use crossbeam::channel::{bounded, unbounded};
 use dashmap::DashMap;
 use parking_lot::RwLock as PLRwLock;
 use smallvec::SmallVec;
 use ahash::{AHashMap, AHashSet};
+use serde::{Serialize, Deserialize};
 
-const MAX_PATH_LENGTH: usize = 8;
-const MIN_PROFIT_THRESHOLD: f64 = 0.001;
-const MAX_CONCURRENT_PATHS: usize = 100000;
-const CACHE_SIZE: usize = 1000000;
+const MAX_PATH_LENGTH: usize = 12;  // Increased for complex paths
+const MIN_PROFIT_THRESHOLD: f64 = 0.0001;  // Lower threshold for micro-profits
+const MAX_CONCURRENT_PATHS: usize = 1000000;  // Massive parallelization
+const CACHE_SIZE: usize = 10000000;
+const MEV_THRESHOLD: f64 = 0.001;
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Market {
     pub exchange_id: u32,
     pub symbol_id: u32,
+    pub chain_id: u32,
     pub bid: f64,
     pub ask: f64,
     pub bid_volume: f64,
     pub ask_volume: f64,
     pub fee: f64,
     pub timestamp: u64,
+    pub gas_price: f64,
+    pub liquidity_score: f64,
+    pub volatility: f64,
+    pub spread_ratio: f64,
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbitragePath {
     pub markets: [u32; MAX_PATH_LENGTH],
     pub exchanges: [u32; MAX_PATH_LENGTH],
+    pub chains: [u32; MAX_PATH_LENGTH],
     pub profit: f64,
+    pub profit_ratio: f64,
     pub volume: f64,
     pub confidence: f64,
+    pub execution_time_us: u64,
+    pub gas_cost: f64,
+    pub slippage_impact: f64,
+    pub mev_risk: f64,
     pub length: u8,
+    pub path_type: u8,  // 0=CEX, 1=DEX, 2=CrossChain, 3=Triangular, 4=Flash
 }
 
-pub struct ArbitrageEngine {
+#[derive(Clone)]
+pub struct MEVOpportunity {
+    pub transaction_hash: String,
+    pub block_number: u64,
+    pub gas_price: f64,
+    pub sandwich_profit: f64,
+    pub frontrun_profit: f64,
+    pub backrun_profit: f64,
+    pub liquidation_profit: f64,
+    pub arbitrage_paths: Vec<ArbitragePath>,
+}
+
+pub struct UltraArbitrageEngine {
     markets: Arc<DashMap<u64, Market>>,
     graph: Arc<PLRwLock<AHashMap<u32, Vec<u32>>>>,
-    paths: Arc<RwLock<Vec<ArbitragePath>>>,
+    paths: Arc<RwLock<BinaryHeap<ArbitragePath>>>,
     cache: Arc<DashMap<u64, f64>>,
     execution_queue: Arc<Mutex<VecDeque<ArbitragePath>>>,
+    mev_queue: Arc<Mutex<VecDeque<MEVOpportunity>>>,
     stats: Arc<DashMap<String, f64>>,
+    profit_tracker: Arc<DashMap<String, f64>>,
+    chain_bridges: Arc<DashMap<(u32, u32), f64>>,
+    gas_trackers: Arc<DashMap<u32, f64>>,
+    mempool_monitor: Arc<DashMap<String, f64>>,
 }
 
-impl ArbitrageEngine {
+impl UltraArbitrageEngine {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            markets: Arc::new(DashMap::with_capacity(100000)),
-            graph: Arc::new(PLRwLock::new(AHashMap::with_capacity(10000))),
-            paths: Arc::new(RwLock::new(Vec::with_capacity(10000))),
+            markets: Arc::new(DashMap::with_capacity(1000000)),
+            graph: Arc::new(PLRwLock::new(AHashMap::with_capacity(100000))),
+            paths: Arc::new(RwLock::new(BinaryHeap::with_capacity(100000))),
             cache: Arc::new(DashMap::with_capacity(CACHE_SIZE)),
-            execution_queue: Arc::new(Mutex::new(VecDeque::with_capacity(1000))),
+            execution_queue: Arc::new(Mutex::new(VecDeque::with_capacity(10000))),
+            mev_queue: Arc::new(Mutex::new(VecDeque::with_capacity(10000))),
             stats: Arc::new(DashMap::new()),
+            profit_tracker: Arc::new(DashMap::new()),
+            chain_bridges: Arc::new(DashMap::new()),
+            gas_trackers: Arc::new(DashMap::new()),
+            mempool_monitor: Arc::new(DashMap::new()),
         })
     }
 
-    pub fn update_market(&self, market: Market) {
-        let key = ((market.exchange_id as u64) << 32) | (market.symbol_id as u64);
+    pub async fn ultra_find_arbitrage(&self) -> Vec<ArbitragePath> {
+        let start_time = Instant::now();
         
-        // Update with timestamp check
-        if let Some(mut existing) = self.markets.get_mut(&key) {
-            if market.timestamp > existing.timestamp {
-                *existing = market.clone();
+        // Parallel processing across multiple strategies
+        let (tx, rx) = unbounded();
+        
+        // Strategy 1: Cross-Exchange Arbitrage
+        let tx1 = tx.clone();
+        let markets1 = self.markets.clone();
+        tokio::spawn(async move {
+            let paths = Self::find_cross_exchange_arbitrage(&markets1).await;
+            for path in paths {
+                let _ = tx1.send(path);
             }
-        } else {
-            self.markets.insert(key, market.clone());
-        }
-        
-        // Update graph
-        let mut graph = self.graph.write();
-        graph.entry(market.symbol_id)
-            .or_insert_with(Vec::new)
-            .push(market.exchange_id);
-    }
-
-    pub fn find_arbitrage_parallel(&self) -> Vec<ArbitragePath> {
-        let markets = self.markets.clone();
-        let graph = self.graph.read().clone();
-        
-        // Parallel search across all symbols
-        let paths: Vec<ArbitragePath> = graph
-            .par_iter()
-            .flat_map(|(symbol_id, exchanges)| {
-                self.find_paths_for_symbol(*symbol_id, exchanges, &markets)
-            })
-            .filter(|path| path.profit > MIN_PROFIT_THRESHOLD)
-            .collect();
-        
-        // Sort by profit
-        let mut sorted_paths = paths;
-        sorted_paths.par_sort_unstable_by(|a, b| {
-            b.profit.partial_cmp(&a.profit).unwrap()
         });
-        
-        sorted_paths.truncate(1000);
-        sorted_paths
+
+        // Strategy 2: Triangular Arbitrage
+        let tx2 = tx.clone();
+        let markets2 = self.markets.clone();
+        tokio::spawn(async move {
+            let paths = Self::find_triangular_arbitrage(&markets2).await;
+            for path in paths {
+                let _ = tx2.send(path);
+            }
+        });
+
+        // Strategy 3: Cross-Chain Arbitrage
+        let tx3 = tx.clone();
+        let markets3 = self.markets.clone();
+        let bridges = self.chain_bridges.clone();
+        tokio::spawn(async move {
+            let paths = Self::find_cross_chain_arbitrage(&markets3, &bridges).await;
+            for path in paths {
+                let _ = tx3.send(path);
+            }
+        });
+
+        // Strategy 4: Flash Loan Arbitrage
+        let tx4 = tx.clone();
+        let markets4 = self.markets.clone();
+        tokio::spawn(async move {
+            let paths = Self::find_flash_loan_arbitrage(&markets4).await;
+            for path in paths {
+                let _ = tx4.send(path);
+            }
+        });
+
+        // Strategy 5: MEV Opportunities
+        let tx5 = tx.clone();
+        let mempool = self.mempool_monitor.clone();
+        tokio::spawn(async move {
+            let paths = Self::find_mev_opportunities(&mempool).await;
+            for path in paths {
+                let _ = tx5.send(path);
+            }
+        });
+
+        drop(tx);
+
+        // Collect all opportunities
+        let mut all_paths = Vec::new();
+        while let Ok(path) = rx.try_recv() {
+            if path.profit > MIN_PROFIT_THRESHOLD {
+                all_paths.push(path);
+            }
+        }
+
+        // Advanced sorting by profitability score
+        all_paths.par_sort_unstable_by(|a, b| {
+            let score_a = a.profit * a.confidence * (1.0 - a.mev_risk) / (1.0 + a.gas_cost);
+            let score_b = b.profit * b.confidence * (1.0 - b.mev_risk) / (1.0 + b.gas_cost);
+            score_b.partial_cmp(&score_a).unwrap()
+        });
+
+        // Update stats
+        self.stats.insert("scan_time_us".to_string(), start_time.elapsed().as_micros() as f64);
+        self.stats.insert("opportunities_found".to_string(), all_paths.len() as f64);
+
+        all_paths.truncate(1000); // Top 1000 opportunities
+        all_paths
     }
 
-    fn find_paths_for_symbol(
-        &self,
-        symbol_id: u32,
-        exchanges: &[u32],
-        markets: &DashMap<u64, Market>,
-    ) -> Vec<ArbitragePath> {
+    async fn find_cross_exchange_arbitrage(markets: &DashMap<u64, Market>) -> Vec<ArbitragePath> {
         let mut paths = Vec::new();
-        
-        // Check direct arbitrage between exchanges
-        for i in 0..exchanges.len() {
-            for j in i + 1..exchanges.len() {
-                let key1 = ((exchanges[i] as u64) << 32) | (symbol_id as u64);
-                let key2 = ((exchanges[j] as u64) << 32) | (symbol_id as u64);
-                
-                if let (Some(m1), Some(m2)) = (markets.get(&key1), markets.get(&key2)) {
-                    // Check for arbitrage opportunity
-                    let profit = self.calculate_direct_arbitrage(&m1, &m2);
+        let symbols = Self::group_by_symbol(markets);
+
+        symbols.par_iter().for_each(|(symbol_id, market_list)| {
+            if market_list.len() < 2 { return; }
+
+            for i in 0..market_list.len() {
+                for j in i+1..market_list.len() {
+                    let m1 = &market_list[i];
+                    let m2 = &market_list[j];
+
+                    // Calculate both directions
+                    if let Some(path) = Self::calculate_arbitrage_path(m1, m2) {
+                        if path.profit > MIN_PROFIT_THRESHOLD {
+                            paths.push(path);
+                        }
+                    }
                     
-                    if profit > MIN_PROFIT_THRESHOLD {
-                        let mut path = ArbitragePath {
-                            markets: [0; MAX_PATH_LENGTH],
-                            exchanges: [0; MAX_PATH_LENGTH],
-                            profit,
-                            volume: (m1.bid_volume.min(m2.ask_volume)),
-                            confidence: self.calculate_confidence(&m1, &m2),
-                            length: 2,
-                        };
-                        
-                        path.markets[0] = symbol_id;
-                        path.markets[1] = symbol_id;
-                        path.exchanges[0] = exchanges[i];
-                        path.exchanges[1] = exchanges[j];
-                        
-                        paths.push(path);
+                    if let Some(path) = Self::calculate_arbitrage_path(m2, m1) {
+                        if path.profit > MIN_PROFIT_THRESHOLD {
+                            paths.push(path);
+                        }
                     }
                 }
             }
-        }
-        
-        // Check triangular arbitrage
-        paths.extend(self.find_triangular_paths(symbol_id, exchanges, markets));
-        
+        });
+
         paths
     }
 
-    fn calculate_direct_arbitrage(&self, m1: &Market, m2: &Market) -> f64 {
-        // Buy at m1.ask, sell at m2.bid
+    async fn find_triangular_arbitrage(markets: &DashMap<u64, Market>) -> Vec<ArbitragePath> {
+        let mut paths = Vec::new();
+        // Complex triangular arbitrage logic here
+        // This would involve finding profitable cycles in the trading graph
+        paths
+    }
+
+    async fn find_cross_chain_arbitrage(
+        markets: &DashMap<u64, Market>,
+        bridges: &DashMap<(u32, u32), f64>
+    ) -> Vec<ArbitragePath> {
+        let mut paths = Vec::new();
+        // Cross-chain arbitrage considering bridge fees and times
+        paths
+    }
+
+    async fn find_flash_loan_arbitrage(markets: &DashMap<u64, Market>) -> Vec<ArbitragePath> {
+        let mut paths = Vec::new();
+        // Flash loan arbitrage opportunities
+        paths
+    }
+
+    async fn find_mev_opportunities(mempool: &DashMap<String, f64>) -> Vec<ArbitragePath> {
+        let mut paths = Vec::new();
+        // MEV extraction from mempool analysis
+        paths
+    }
+
+    fn group_by_symbol(markets: &DashMap<u64, Market>) -> HashMap<u32, Vec<Market>> {
+        let mut symbols = HashMap::new();
+        for entry in markets.iter() {
+            let market = entry.value().clone();
+            symbols.entry(market.symbol_id).or_insert_with(Vec::new).push(market);
+        }
+        symbols
+    }
+
+    fn calculate_arbitrage_path(m1: &Market, m2: &Market) -> Option<ArbitragePath> {
         let buy_price = m1.ask * (1.0 + m1.fee);
         let sell_price = m2.bid * (1.0 - m2.fee);
         
-        if sell_price > buy_price {
-            (sell_price - buy_price) / buy_price
+        if sell_price <= buy_price {
+            return None;
+        }
+
+        let profit = sell_price - buy_price;
+        let profit_ratio = profit / buy_price;
+        let volume = m1.ask_volume.min(m2.bid_volume);
+        
+        // Advanced confidence calculation
+        let confidence = Self::calculate_confidence(m1, m2);
+        
+        // MEV risk assessment
+        let mev_risk = Self::calculate_mev_risk(m1, m2);
+        
+        // Gas cost estimation
+        let gas_cost = Self::estimate_gas_cost(m1, m2);
+
+        let mut path = ArbitragePath {
+            markets: [0; MAX_PATH_LENGTH],
+            exchanges: [0; MAX_PATH_LENGTH],
+            chains: [0; MAX_PATH_LENGTH],
+            profit,
+            profit_ratio,
+            volume,
+            confidence,
+            execution_time_us: 0,
+            gas_cost,
+            slippage_impact: Self::calculate_slippage(volume, m1.ask_volume, m2.bid_volume),
+            mev_risk,
+            length: 2,
+            path_type: if m1.chain_id == m2.chain_id { 0 } else { 2 },
+        };
+
+        path.markets[0] = m1.symbol_id;
+        path.markets[1] = m2.symbol_id;
+        path.exchanges[0] = m1.exchange_id;
+        path.exchanges[1] = m2.exchange_id;
+        path.chains[0] = m1.chain_id;
+        path.chains[1] = m2.chain_id;
+
+        Some(path)
+    }
+
+    fn calculate_confidence(m1: &Market, m2: &Market) -> f64 {
+        let time_factor = 1.0 - ((Instant::now().elapsed().as_secs() as f64 - m1.timestamp as f64).abs() / 60.0).min(1.0);
+        let liquidity_factor = (m1.liquidity_score * m2.liquidity_score).sqrt();
+        let spread_factor = 1.0 - (m1.spread_ratio + m2.spread_ratio) / 2.0;
+        let volatility_factor = 1.0 - (m1.volatility * m2.volatility).sqrt();
+        
+        (time_factor * liquidity_factor * spread_factor * volatility_factor).max(0.0).min(1.0)
+    }
+
+    fn calculate_mev_risk(m1: &Market, m2: &Market) -> f64 {
+        // Higher gas prices indicate more MEV competition
+        let gas_factor = (m1.gas_price + m2.gas_price) / 200.0; // Normalize by 200 gwei
+        
+        // Cross-chain has lower MEV risk
+        let chain_factor = if m1.chain_id != m2.chain_id { 0.3 } else { 1.0 };
+        
+        (gas_factor * chain_factor).min(1.0)
+    }
+
+    fn estimate_gas_cost(m1: &Market, m2: &Market) -> f64 {
+        if m1.chain_id == m2.chain_id {
+            // Same chain - DEX swaps
+            m1.gas_price * 300000.0 / 1e18 // ~300k gas for complex swaps
         } else {
-            // Try reverse
-            let buy_price = m2.ask * (1.0 + m2.fee);
-            let sell_price = m1.bid * (1.0 - m1.fee);
-            
-            if sell_price > buy_price {
-                (sell_price - buy_price) / buy_price
-            } else {
-                0.0
-            }
+            // Cross-chain - bridge + swaps
+            (m1.gas_price * 200000.0 + m2.gas_price * 200000.0) / 1e18
         }
     }
 
-    fn find_triangular_paths(
-        &self,
-        start_symbol: u32,
-        exchanges: &[u32],
-        markets: &DashMap<u64, Market>,
-    ) -> Vec<ArbitragePath> {
-        let mut paths = Vec::new();
-        
-        // Find all symbols connected to start_symbol
-        let connected_symbols = self.find_connected_symbols(start_symbol, markets);
-        
-        for middle_symbol in connected_symbols {
-            // Find symbols connected to middle_symbol
-            let final_symbols = self.find_connected_symbols(middle_symbol, markets);
-            
-            for end_symbol in final_symbols {
-                if end_symbol == start_symbol {
-                    continue; // Skip if it's back to start
-                }
-                
-                // Check if we can complete the triangle
-                if self.has_market(end_symbol, start_symbol, markets) {
-                    // Calculate triangular arbitrage
-                    let profit = self.calculate_triangular_profit(
-                        start_symbol,
-                        middle_symbol,
-                        end_symbol,
-                        exchanges,
-                        markets,
-                    );
-                    
-                    if profit > MIN_PROFIT_THRESHOLD {
-                        let mut path = ArbitragePath {
-                            markets: [0; MAX_PATH_LENGTH],
-                            exchanges: [0; MAX_PATH_LENGTH],
-                            profit,
-                            volume: 0.0,
-                            confidence: 0.8,
-                            length: 3,
-                        };
-                        
-                        path.markets[0] = start_symbol;
-                        path.markets[1] = middle_symbol;
-                        path.markets[2] = end_symbol;
-                        
-                        paths.push(path);
-                    }
-                }
-            }
-        }
-        
-        paths
+    fn calculate_slippage(trade_volume: f64, ask_volume: f64, bid_volume: f64) -> f64 {
+        let ask_impact = (trade_volume / ask_volume).min(1.0);
+        let bid_impact = (trade_volume / bid_volume).min(1.0);
+        (ask_impact + bid_impact) / 2.0 * 0.01 // Convert to percentage impact
     }
 
-    fn find_connected_symbols(&self, symbol: u32, markets: &DashMap<u64, Market>) -> Vec<u32> {
-        let mut connected = HashSet::new();
+    pub async fn execute_ultra_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        let start_time = Instant::now();
         
-        for entry in markets.iter() {
-            let market = entry.value();
-            if market.symbol_id == symbol {
-                // This is a simplification - in reality, you'd parse the symbol pairs
-                connected.insert((market.symbol_id + 1) % 1000);
-            }
-        }
-        
-        connected.into_iter().collect()
-    }
-
-    fn has_market(&self, symbol1: u32, symbol2: u32, markets: &DashMap<u64, Market>) -> bool {
-        markets.iter().any(|entry| {
-            let market = entry.value();
-            market.symbol_id == symbol1 || market.symbol_id == symbol2
-        })
-    }
-
-    fn calculate_triangular_profit(
-        &self,
-        s1: u32,
-        s2: u32,
-        s3: u32,
-        exchanges: &[u32],
-        markets: &DashMap<u64, Market>,
-    ) -> f64 {
-        // Simplified triangular calculation
-        let mut total_rate = 1.0;
-        
-        // Step 1: s1 -> s2
-        if let Some(market) = self.get_best_market(s1, s2, exchanges, markets) {
-            total_rate *= market.bid / market.ask;
-            total_rate *= 1.0 - market.fee;
-        }
-        
-        // Step 2: s2 -> s3
-        if let Some(market) = self.get_best_market(s2, s3, exchanges, markets) {
-            total_rate *= market.bid / market.ask;
-            total_rate *= 1.0 - market.fee;
-        }
-        
-        // Step 3: s3 -> s1
-        if let Some(market) = self.get_best_market(s3, s1, exchanges, markets) {
-            total_rate *= market.bid / market.ask;
-            total_rate *= 1.0 - market.fee;
-        }
-        
-        if total_rate > 1.0 {
-            total_rate - 1.0
-        } else {
-            0.0
+        match path.path_type {
+            0 => self.execute_cex_arbitrage(path).await,
+            1 => self.execute_dex_arbitrage(path).await,
+            2 => self.execute_cross_chain_arbitrage(path).await,
+            3 => self.execute_triangular_arbitrage(path).await,
+            4 => self.execute_flash_loan_arbitrage(path).await,
+            _ => Err("Unknown path type".to_string())
         }
     }
 
-    fn get_best_market(
-        &self,
-        s1: u32,
-        s2: u32,
-        exchanges: &[u32],
-        markets: &DashMap<u64, Market>,
-    ) -> Option<Market> {
-        let mut best_market = None;
-        let mut best_rate = 0.0;
+    async fn execute_cex_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        // Simulate CEX execution with API calls
+        tokio::time::sleep(Duration::from_millis(50)).await;
         
-        for exchange in exchanges {
-            let key = ((*exchange as u64) << 32) | (s1 as u64);
-            if let Some(market) = markets.get(&key) {
-                let rate = market.bid / market.ask;
-                if rate > best_rate {
-                    best_rate = rate;
-                    best_market = Some(market.clone());
-                }
-            }
-        }
-        
-        best_market
-    }
-
-    fn calculate_confidence(&self, m1: &Market, m2: &Market) -> f64 {
-        let volume_factor = (m1.bid_volume.min(m2.ask_volume) / 10000.0).min(1.0);
-        let time_factor = 1.0 / (1.0 + (Instant::now().elapsed().as_secs() as f64 - m1.timestamp as f64).abs() / 60.0);
-        let spread_factor = 1.0 - ((m1.ask - m1.bid) / m1.bid).min(0.1);
-        
-        (volume_factor * time_factor * spread_factor).max(0.0).min(1.0)
-    }
-
-    pub async fn execute_arbitrage(&self, path: ArbitragePath) -> Result<String, String> {
-        // Update statistics
-        self.stats.insert("total_attempts".to_string(), 
-            self.stats.get("total_attempts").map(|v| *v).unwrap_or(0.0) + 1.0);
-        
-        // Simulate execution
-        let success = path.confidence > 0.5 && path.profit > MIN_PROFIT_THRESHOLD;
-        
-        if success {
-            self.stats.insert("successful_trades".to_string(),
-                self.stats.get("successful_trades").map(|v| *v).unwrap_or(0.0) + 1.0);
-            self.stats.insert("total_profit".to_string(),
-                self.stats.get("total_profit").map(|v| *v).unwrap_or(0.0) + path.profit);
-            
-            Ok(format!("Executed: profit={:.4}%, confidence={:.2}", 
-                path.profit * 100.0, path.confidence))
+        let success_rate = path.confidence;
+        if rand::random::<f64>() < success_rate {
+            let actual_profit = path.profit * (0.95 + rand::random::<f64>() * 0.1); // 95-105% of expected
+            self.profit_tracker.insert(format!("cex_{}", path.exchanges[0]), actual_profit);
+            Ok(actual_profit)
         } else {
             Err("Execution failed".to_string())
         }
     }
 
-    pub fn get_stats(&self) -> HashMap<String, f64> {
-        let mut stats = HashMap::new();
-        for entry in self.stats.iter() {
-            stats.insert(entry.key().clone(), *entry.value());
-        }
-        stats
-    }
-}
-
-// FFI exports for Python/C++ interop
-#[no_mangle]
-pub extern "C" fn create_engine() -> *mut ArbitrageEngine {
-    let engine = ArbitrageEngine::new();
-    Arc::into_raw(engine) as *mut ArbitrageEngine
-}
-
-#[no_mangle]
-pub extern "C" fn destroy_engine(engine: *mut ArbitrageEngine) {
-    if !engine.is_null() {
-        unsafe {
-            let _ = Arc::from_raw(engine);
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn update_market(
-    engine: *mut ArbitrageEngine,
-    exchange_id: u32,
-    symbol_id: u32,
-    bid: f64,
-    ask: f64,
-    bid_volume: f64,
-    ask_volume: f64,
-    fee: f64,
-) {
-    if engine.is_null() {
-        return;
-    }
-    
-    unsafe {
-        let engine = &*engine;
-        let market = Market {
-            exchange_id,
-            symbol_id,
-            bid,
-            ask,
-            bid_volume,
-            ask_volume,
-            fee,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        };
+    async fn execute_dex_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        // Simulate DEX execution via smart contracts
+        tokio::time::sleep(Duration::from_millis(100)).await;
         
-        engine.update_market(market);
+        let gas_cost_usd = path.gas_cost;
+        let net_profit = path.profit - gas_cost_usd;
+        
+        if net_profit > 0.0 && rand::random::<f64>() < path.confidence {
+            self.profit_tracker.insert(format!("dex_{}", path.exchanges[0]), net_profit);
+            Ok(net_profit)
+        } else {
+            Err("Unprofitable after gas".to_string())
+        }
+    }
+
+    async fn execute_cross_chain_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        // Cross-chain execution with bridge delays
+        tokio::time::sleep(Duration::from_millis(5000)).await; // 5 second bridge time
+        
+        let bridge_fee = self.chain_bridges.get(&(path.chains[0], path.chains[1]))
+            .map(|v| *v)
+            .unwrap_or(0.001);
+        
+        let net_profit = path.profit - bridge_fee - path.gas_cost;
+        
+        if net_profit > 0.0 {
+            self.profit_tracker.insert(format!("bridge_{}_{}", path.chains[0], path.chains[1]), net_profit);
+            Ok(net_profit)
+        } else {
+            Err("Unprofitable after bridge fees".to_string())
+        }
+    }
+
+    async fn execute_triangular_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        // Multi-hop execution
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        
+        let compound_slippage = path.slippage_impact * path.length as f64;
+        let net_profit = path.profit * (1.0 - compound_slippage) - path.gas_cost;
+        
+        if net_profit > 0.0 {
+            self.profit_tracker.insert(format!("tri_{}", path.exchanges[0]), net_profit);
+            Ok(net_profit)
+        } else {
+            Err("Slippage too high".to_string())
+        }
+    }
+
+    async fn execute_flash_loan_arbitrage(&self, path: ArbitragePath) -> Result<f64, String> {
+        // Flash loan execution
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        
+        let flash_fee = path.volume * 0.0009; // 0.09% flash loan fee
+        let net_profit = path.profit - flash_fee - path.gas_cost;
+        
+        if net_profit > 0.0 {
+            self.profit_tracker.insert("flash_loan".to_string(), net_profit);
+            Ok(net_profit)
+        } else {
+            Err("Flash loan fees too high".to_string())
+        }
+    }
+
+    pub fn get_total_profit(&self) -> f64 {
+        self.profit_tracker.iter().map(|entry| *entry.value()).sum()
+    }
+
+    pub fn get_performance_metrics(&self) -> HashMap<String, f64> {
+        let mut metrics = HashMap::new();
+        for entry in self.stats.iter() {
+            metrics.insert(entry.key().clone(), *entry.value());
+        }
+        
+        metrics.insert("total_profit".to_string(), self.get_total_profit());
+        metrics.insert("opportunities_per_second".to_string(), 
+            self.stats.get("opportunities_found").map(|v| *v).unwrap_or(0.0) / 
+            self.stats.get("scan_time_us").map(|v| *v / 1_000_000.0).unwrap_or(1.0));
+        
+        metrics
     }
 }
 
+// Enhanced FFI exports
 #[no_mangle]
-pub extern "C" fn find_arbitrage(
-    engine: *mut ArbitrageEngine,
+pub extern "C" fn create_ultra_engine() -> *mut UltraArbitrageEngine {
+    let engine = UltraArbitrageEngine::new();
+    Arc::into_raw(engine) as *mut UltraArbitrageEngine
+}
+
+#[no_mangle]
+pub extern "C" fn find_ultra_arbitrage(
+    engine: *mut UltraArbitrageEngine,
     paths_out: *mut ArbitragePath,
     max_paths: usize,
 ) -> usize {
@@ -402,7 +455,8 @@ pub extern "C" fn find_arbitrage(
     
     unsafe {
         let engine = &*engine;
-        let paths = engine.find_arbitrage_parallel();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let paths = rt.block_on(engine.ultra_find_arbitrage());
         
         let count = paths.len().min(max_paths);
         for i in 0..count {
@@ -410,5 +464,24 @@ pub extern "C" fn find_arbitrage(
         }
         
         count
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn get_profit_metrics(
+    engine: *mut UltraArbitrageEngine,
+    total_profit: *mut f64,
+    opportunities_per_sec: *mut f64,
+) {
+    if engine.is_null() || total_profit.is_null() || opportunities_per_sec.is_null() {
+        return;
+    }
+    
+    unsafe {
+        let engine = &*engine;
+        let metrics = engine.get_performance_metrics();
+        
+        *total_profit = metrics.get("total_profit").copied().unwrap_or(0.0);
+        *opportunities_per_sec = metrics.get("opportunities_per_second").copied().unwrap_or(0.0);
     }
 }
