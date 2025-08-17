@@ -1,1 +1,1 @@
-/usr/bin/c++ -O3 -march=native -mtune=native -O3 -march=native -flto -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libmempool.dylib -install_name @rpath/libmempool.dylib CMakeFiles/mempool.dir/src/cpp/mempool_monitor.cpp.o
+/usr/bin/c++ -O3 -march=native -mtune=native -O3 -arch arm64 -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libmempool.dylib -install_name @rpath/libmempool.dylib CMakeFiles/mempool.dir/src/cpp/mempool_monitor.cpp.o

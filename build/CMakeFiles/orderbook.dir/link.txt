@@ -1,1 +1,1 @@
-/usr/bin/c++ -O3 -march=native -mtune=native -O3 -march=native -flto -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o liborderbook.dylib -install_name @rpath/liborderbook.dylib CMakeFiles/orderbook.dir/src/cpp/orderbook_scanner.cpp.o
+/usr/bin/c++ -O3 -march=native -mtune=native -O3 -arch arm64 -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o liborderbook.dylib -install_name @rpath/liborderbook.dylib CMakeFiles/orderbook.dir/src/cpp/orderbook_scanner.cpp.o

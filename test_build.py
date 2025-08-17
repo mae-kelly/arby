@@ -1,43 +1,60 @@
 #!/usr/bin/env python3
-"""Test if components are working"""
-
-import os
 import sys
+import os
+import platform
+import ctypes
 
-print("Testing build components...\n")
+print("🧪 Testing M1 Build")
+print("=" * 40)
 
-# Test Python
-print("✅ Python:", sys.version.split()[0])
+# Platform info
+print(f"Platform: {platform.system()}")
+print(f"Processor: {platform.processor()}")
+print(f"Architecture: {platform.machine()}")
 
-# Test if ccxt can be imported
+# Test Rust library
+try:
+    rust_lib = ctypes.CDLL('./target/release/libarbitrage_engine.dylib')
+    print("✅ Rust library loaded")
+except Exception as e:
+    print(f"❌ Rust library failed: {e}")
+
+# Test C++ libraries
+try:
+    cpp_orderbook = ctypes.CDLL('./build/liborderbook.dylib')
+    print("✅ C++ orderbook loaded")
+except Exception as e:
+    print(f"⚠️  C++ orderbook failed: {e}")
+
+try:
+    cpp_mempool = ctypes.CDLL('./build/libmempool.dylib')
+    print("✅ C++ mempool loaded")
+except Exception as e:
+    print(f"⚠️  C++ mempool failed: {e}")
+
+# Test Python imports
+try:
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        print(f"✅ M1 GPU available: {gpus[0]}")
+    else:
+        print("⚠️  No M1 GPU detected")
+except ImportError:
+    print("❌ TensorFlow not installed")
+
 try:
     import ccxt
-    print("✅ ccxt installed")
-except:
-    print("⚠️  ccxt not installed - run: pip3 install ccxt")
+    print("✅ CCXT installed")
+except ImportError:
+    print("❌ CCXT not installed")
 
-# Check for .env
-if os.path.exists('.env'):
-    print("✅ .env file exists")
-else:
-    print("⚠️  No .env file - copy from .env.example")
+print("\n📊 Build Summary:")
+if os.path.exists('./target/release/libarbitrage_engine.dylib'):
+    size = os.path.getsize('./target/release/libarbitrage_engine.dylib') / 1024 / 1024
+    print(f"  Rust library: {size:.2f} MB")
+if os.path.exists('./build/liborderbook.dylib'):
+    size = os.path.getsize('./build/liborderbook.dylib') / 1024
+    print(f"  C++ orderbook: {size:.2f} KB")
 
-# Check for build directory
-if os.path.exists('build'):
-    print("✅ build directory exists")
-    
-    # Check for compiled libraries
-    libs = ['libscanner.dylib', 'libarbitrage_engine.dylib', 'scanner']
-    for lib in libs:
-        if os.path.exists(f'build/{lib}'):
-            print(f"   ✅ {lib} found")
-
-# Check for Rust target
-if os.path.exists('target/release'):
-    print("✅ Rust build directory exists")
-
-print("\n" + "="*50)
-print("To run the bot:")
-print("1. Add API keys to .env file")
-print("2. Run: python3 src/python/simple_bot.py")
-print("="*50)
+print("\n✅ Build test complete!")

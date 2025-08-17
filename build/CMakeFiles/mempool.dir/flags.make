@@ -6,7 +6,7 @@ CXX_DEFINES = -Dmempool_EXPORTS
 
 CXX_INCLUDES = 
 
-CXX_FLAGSarm64 = -O3 -march=native -mtune=native -O3 -march=native -flto -std=gnu++17 -arch arm64 -fPIC
+CXX_FLAGSarm64 = -O3 -march=native -mtune=native -O3 -arch arm64 -std=gnu++17 -arch arm64 -fPIC
 
-CXX_FLAGS = -O3 -march=native -mtune=native -O3 -march=native -flto -std=gnu++17 -arch arm64 -fPIC
+CXX_FLAGS = -O3 -march=native -mtune=native -O3 -arch arm64 -std=gnu++17 -arch arm64 -fPIC
 
