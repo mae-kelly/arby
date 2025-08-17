@@ -1,29 +1,3 @@
-#!/bin/bash
-# Advanced System Monitoring for Production Arbitrage Bot
-set -e
-
-echo "📊 Advanced Arbitrage System Monitor"
-echo "===================================="
-
-# Activate virtual environment
-source venv/bin/activate 2>/dev/null || true
-
-# Create monitoring directory
-mkdir -p monitoring/{dashboards,alerts,metrics,reports}
-
-# Install monitoring dependencies
-echo "📦 Installing monitoring tools..."
-pip install psutil prometheus_client grafana-api websockets plotly dash
-
-# System configuration
-ALERT_THRESHOLD_CPU=80
-ALERT_THRESHOLD_MEMORY=85
-ALERT_THRESHOLD_DISK=90
-PROFIT_ALERT_MINIMUM=10000  # $10k daily minimum
-ERROR_RATE_THRESHOLD=0.05   # 5% max error rate
-
-# Create comprehensive monitoring dashboard
-cat > monitoring/dashboard.py << 'EOF'
 #!/usr/bin/env python3
 import asyncio
 import json
