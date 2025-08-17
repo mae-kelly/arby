@@ -1,31 +1,102 @@
-web3==6.15.1
-ccxt==4.2.25
-asyncio==3.4.3
-aiohttp==3.9.1
-websockets==12.0
-redis==5.0.1
-psycopg2-binary==2.9.9
-sqlalchemy==2.0.23
-alembic==1.13.1
-pandas==2.1.4
-numpy==1.25.2
-scikit-learn==1.3.2
-tensorflow==2.15.0
-torch==2.1.2
-ta-lib==0.4.28
-python-dotenv==1.0.0
-pydantic==2.5.2
-fastapi==0.108.0
-uvicorn==0.24.0
-celery==5.3.4
-prometheus-client==0.19.0
-structlog==23.2.0
-cryptography==41.0.8
-eth-account==0.10.0
-eth-keys==0.4.0
-brownie==1.20.4
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.1
+# Core Dependencies
+python-dotenv>=1.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Async & Networking
+asyncio>=3.4.3
+aiohttp>=3.8.4
+uvloop>=0.17.0
+websockets>=11.0
+httpx>=0.24.0
+
+# Web3 & Blockchain
+web3>=6.5.0
+eth-account>=0.9.0
+eth-abi>=4.0.0
+hexbytes>=0.3.0
+py-solc-x>=1.1.1
+
+# Cryptocurrency Exchanges
+ccxt>=4.0.0
+
+# Machine Learning & AI
+torch>=2.0.0
+torchvision>=0.15.0
+lightning>=2.0.0
+transformers>=4.30.0
+xgboost>=1.7.0
+scikit-learn>=1.3.0
+optuna>=3.2.0
+joblib>=1.3.0
+
+# GPU Acceleration (install conditionally based on environment)
+# For CUDA 11.8
+# cupy-cuda11x>=12.0.0
+# For CUDA 12.x
+# cupy-cuda12x>=12.0.0
+
+# Data Processing
+pyarrow>=12.0.0
+cytoolz>=0.12.0
+msgpack>=1.0.5
+lz4>=4.3.0
+
+# Database & Caching
+redis>=4.5.0
+pymongo>=4.4.0
+sqlalchemy>=2.0.0
+
+# Message Queue
+pyzmq>=25.0.0
+kafka-python>=2.0.2
+
+# Monitoring & Logging
+prometheus-client>=0.17.0
+structlog>=23.1.0
+coloredlogs>=15.0.1
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# Code Quality
+black>=23.3.0
+flake8>=6.0.0
+mypy>=1.4.0
+pylint>=2.17.0
+
+# Performance Profiling
+memory-profiler>=0.61.0
+line-profiler>=4.0.0
+py-spy>=0.3.14
+
+# Utility
+python-dateutil>=2.8.2
+pytz>=2023.3
+pyyaml>=6.0
+click>=8.1.0
+tqdm>=4.65.0
+tabulate>=0.9.0
+
+# Security
+cryptography>=41.0.0
+pynacl>=1.5.0
+
+# Development Tools
+ipython>=8.14.0
+jupyter>=1.0.0
+notebook>=7.0.0
+ipywidgets>=8.0.0
+
+# Optional: Advanced ML (uncomment if needed)
+# tensorflow>=2.13.0
+# jax>=0.4.0
+# optax>=0.1.5
+
+# Optional: Rust bindings
+# maturin>=1.0.0
+# pyo3>=0.19.0

@@ -1,0 +1,24 @@
+[package]
+name = "arbitrage-engine"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "arbitrage_engine"
+crate-type = ["cdylib", "staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+rayon = "1.8"
+crossbeam = "0.8"
+dashmap = "5.5"
+parking_lot = "0.12"
+smallvec = "1.11"
+ahash = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

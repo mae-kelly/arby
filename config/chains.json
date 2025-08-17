@@ -1,0 +1,332 @@
+{
+  "chains": {
+    "ethereum": {
+      "chainId": 1,
+      "name": "Ethereum Mainnet",
+      "symbol": "ETH",
+      "rpc": [
+        "https://mainnet.infura.io/v3/",
+        "https://eth-mainnet.g.alchemy.com/v2/",
+        "https://ethereum.publicnode.com",
+        "https://rpc.ankr.com/eth"
+      ],
+      "ws": [
+        "wss://mainnet.infura.io/ws/v3/",
+        "wss://eth-mainnet.g.alchemy.com/v2/"
+      ],
+      "explorer": "https://etherscan.io",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "blockTime": 12,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 65000,
+        "swap": 200000,
+        "flashLoan": 3000000
+      },
+      "contracts": {
+        "multicall": "0xeefBa1e63905eF1D7ACbA5a8513c70307C1cE441",
+        "ensRegistry": "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
+      }
+    },
+    "bsc": {
+      "chainId": 56,
+      "name": "Binance Smart Chain",
+      "symbol": "BNB",
+      "rpc": [
+        "https://bsc-dataseed1.binance.org",
+        "https://bsc-dataseed2.binance.org",
+        "https://bsc-dataseed3.binance.org",
+        "https://bsc-dataseed4.binance.org",
+        "https://rpc.ankr.com/bsc"
+      ],
+      "ws": [
+        "wss://bsc-ws-node.nariox.org:443"
+      ],
+      "explorer": "https://bscscan.com",
+      "nativeCurrency": {
+        "name": "BNB",
+        "symbol": "BNB",
+        "decimals": 18
+      },
+      "blockTime": 3,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 60000,
+        "swap": 180000,
+        "flashLoan": 2500000
+      },
+      "contracts": {
+        "multicall": "0x41263cBA59EB80dC200F3E2544eda4ed6A90E76C"
+      }
+    },
+    "polygon": {
+      "chainId": 137,
+      "name": "Polygon",
+      "symbol": "MATIC",
+      "rpc": [
+        "https://polygon-rpc.com",
+        "https://rpc-mainnet.maticvigil.com",
+        "https://matic-mainnet.chainstacklabs.com",
+        "https://polygon-mainnet.infura.io/v3/",
+        "https://polygon-mainnet.g.alchemy.com/v2/"
+      ],
+      "ws": [
+        "wss://polygon-mainnet.g.alchemy.com/v2/",
+        "wss://ws-matic-mainnet.chainstacklabs.com"
+      ],
+      "explorer": "https://polygonscan.com",
+      "nativeCurrency": {
+        "name": "MATIC",
+        "symbol": "MATIC",
+        "decimals": 18
+      },
+      "blockTime": 2,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 55000,
+        "swap": 150000,
+        "flashLoan": 2000000
+      },
+      "contracts": {
+        "multicall": "0x11ce4B23bD875D7F5C6a31084f55fDe1e9A87507"
+      }
+    },
+    "arbitrum": {
+      "chainId": 42161,
+      "name": "Arbitrum One",
+      "symbol": "ETH",
+      "rpc": [
+        "https://arb1.arbitrum.io/rpc",
+        "https://arbitrum-mainnet.infura.io/v3/",
+        "https://arb-mainnet.g.alchemy.com/v2/"
+      ],
+      "ws": [
+        "wss://arb-mainnet.g.alchemy.com/v2/"
+      ],
+      "explorer": "https://arbiscan.io",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "blockTime": 0.25,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 80000,
+        "swap": 250000,
+        "flashLoan": 5000000
+      },
+      "contracts": {
+        "multicall": "0x842eC2c7D803033Edf55E478F461FC547Bc54EB2"
+      },
+      "layer": 2,
+      "parentChain": "ethereum"
+    },
+    "optimism": {
+      "chainId": 10,
+      "name": "Optimism",
+      "symbol": "ETH",
+      "rpc": [
+        "https://mainnet.optimism.io",
+        "https://optimism-mainnet.infura.io/v3/",
+        "https://opt-mainnet.g.alchemy.com/v2/"
+      ],
+      "ws": [
+        "wss://opt-mainnet.g.alchemy.com/v2/"
+      ],
+      "explorer": "https://optimistic.etherscan.io",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "blockTime": 2,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 70000,
+        "swap": 200000,
+        "flashLoan": 3000000
+      },
+      "contracts": {
+        "multicall": "0x35A6Cdb2C9AD4a45112df4a04147EB07dFA01aB7"
+      },
+      "layer": 2,
+      "parentChain": "ethereum"
+    },
+    "avalanche": {
+      "chainId": 43114,
+      "name": "Avalanche C-Chain",
+      "symbol": "AVAX",
+      "rpc": [
+        "https://api.avax.network/ext/bc/C/rpc",
+        "https://avalanche-mainnet.infura.io/v3/",
+        "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc"
+      ],
+      "ws": [
+        "wss://api.avax.network/ext/bc/C/ws"
+      ],
+      "explorer": "https://snowtrace.io",
+      "nativeCurrency": {
+        "name": "AVAX",
+        "symbol": "AVAX",
+        "decimals": 18
+      },
+      "blockTime": 2,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 55000,
+        "swap": 180000,
+        "flashLoan": 2500000
+      },
+      "contracts": {
+        "multicall": "0xcA11bde05977b3631167028862bE2a173976CA11"
+      }
+    },
+    "fantom": {
+      "chainId": 250,
+      "name": "Fantom Opera",
+      "symbol": "FTM",
+      "rpc": [
+        "https://rpc.ftm.tools",
+        "https://fantom.publicnode.com",
+        "https://rpc.ankr.com/fantom"
+      ],
+      "ws": [
+        "wss://wsapi.fantom.network"
+      ],
+      "explorer": "https://ftmscan.com",
+      "nativeCurrency": {
+        "name": "Fantom",
+        "symbol": "FTM",
+        "decimals": 18
+      },
+      "blockTime": 1,
+      "gasLimits": {
+        "transfer": 21000,
+        "erc20Transfer": 50000,
+        "swap": 160000,
+        "flashLoan": 2000000
+      }
+    },
+    "base": {
+      "chainId": 8453,
+      "name": "Base",
+      "symbol": "ETH",
+      "rpc": [
+        "https://mainnet.base.org",
+        "https://base.publicnode.com"
+      ],
+      "explorer": "https://basescan.org",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "blockTime": 2,
+      "layer": 2,
+      "parentChain": "ethereum"
+    },
+    "zksync": {
+      "chainId": 324,
+      "name": "zkSync Era",
+      "symbol": "ETH",
+      "rpc": [
+        "https://mainnet.era.zksync.io"
+      ],
+      "explorer": "https://explorer.zksync.io",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "blockTime": 1,
+      "layer": 2,
+      "parentChain": "ethereum"
+    }
+  },
+  "bridges": {
+    "stargate": {
+      "chains": ["ethereum", "bsc", "polygon", "arbitrum", "optimism", "avalanche"],
+      "contracts": {
+        "ethereum": "0x8731d54E9D02c286767d56ac03e8037C07e01e98",
+        "bsc": "0x4a364f8c717cAAD9A442737Eb7b8A55cc6cf18D8",
+        "polygon": "0x45A01E4e04F14f7A4a6702c74187c5F6222033cd"
+      },
+      "fees": {
+        "base": 0.0006,
+        "liquidity": 0.0001
+      }
+    },
+    "hop": {
+      "chains": ["ethereum", "polygon", "arbitrum", "optimism"],
+      "contracts": {
+        "ethereum": "0x3666f603Cc164936C1b87e207F36BEBa4AC5f18a"
+      },
+      "fees": {
+        "base": 0.0004
+      }
+    },
+    "synapse": {
+      "chains": ["ethereum", "bsc", "polygon", "arbitrum", "optimism", "avalanche", "fantom"],
+      "contracts": {
+        "ethereum": "0x2796317b0fF8538F253012862c06787Adfb8cEb6"
+      },
+      "fees": {
+        "base": 0.0005
+      }
+    },
+    "multichain": {
+      "chains": ["ethereum", "bsc", "polygon", "arbitrum", "optimism", "avalanche", "fantom"],
+      "fees": {
+        "base": 0.001,
+        "minimum": 10
+      }
+    },
+    "celer": {
+      "chains": ["ethereum", "bsc", "polygon", "arbitrum", "optimism", "avalanche"],
+      "contracts": {
+        "ethereum": "0x5427FEFA711Eff984124bFBB1AB6fbf5E3DA1820"
+      },
+      "fees": {
+        "base": 0.0004
+      }
+    }
+  },
+  "gas_tokens": {
+    "ethereum": "ETH",
+    "bsc": "BNB",
+    "polygon": "MATIC",
+    "arbitrum": "ETH",
+    "optimism": "ETH",
+    "avalanche": "AVAX",
+    "fantom": "FTM",
+    "base": "ETH",
+    "zksync": "ETH"
+  },
+  "layer2_mapping": {
+    "arbitrum": {
+      "parent": "ethereum",
+      "type": "optimistic_rollup"
+    },
+    "optimism": {
+      "parent": "ethereum",
+      "type": "optimistic_rollup"
+    },
+    "base": {
+      "parent": "ethereum",
+      "type": "optimistic_rollup"
+    },
+    "zksync": {
+      "parent": "ethereum",
+      "type": "zk_rollup"
+    },
+    "polygon": {
+      "parent": "ethereum",
+      "type": "sidechain"
+    }
+  }
+}
