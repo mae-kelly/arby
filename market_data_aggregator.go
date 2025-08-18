@@ -1,6 +1,3 @@
-# ===== GO - Market Data Aggregator =====
-# market_data_aggregator.go
-
 package main
 
 import (
@@ -141,16 +138,21 @@ func (da *DataAggregator) fetchMarketData(symbol string) (*MarketData, error) {
     }, nil
 }
 
-func (da *DataAggregator) detectArbitrageOpportunities() {
+func (da *DataAggregator) detectRealisticArbitrageOpportunities() {
     da.mu.RLock()
     defer da.mu.RUnlock()
     
     for symbol, data := range da.marketData {
         spread := ((data.Ask - data.Bid) / data.Bid) * 100
         
-        if spread > 0.5 {
-            message := fmt.Sprintf("Arbitrage opportunity detected: %s spread %.2f%%", symbol, spread)
+        // Only alert on realistic spreads (0.01% or higher)
+        if spread > 0.01 && spread < 1.0 {
+            message := fmt.Sprintf("Realistic spread detected: %s %.4f%% (Bid: %.2f, Ask: %.2f)", 
+                symbol, spread, data.Bid, data.Ask)
             go da.sendDiscordAlert(message)
+            fmt.Printf("🎯 %s\n", message)
+        } else if spread > 1.0 {
+            fmt.Printf("⚠️  Suspicious spread on %s: %.2f%% (likely error)\n", symbol, spread)
         }
     }
 }
@@ -170,26 +172,40 @@ func (da *DataAggregator) updateMarketData() {
             da.marketData[sym] = *data
             da.mu.Unlock()
             
-            fmt.Printf("Updated %s: Bid=%.2f, Ask=%.2f, Last=%.2f\n", 
-                data.Symbol, data.Bid, data.Ask, data.LastPrice)
+            spread := ((data.Ask - data.Bid) / data.Bid) * 100
+            fmt.Printf("Updated %s: Bid=%.2f, Ask=%.2f, Spread=%.4f%%\n", 
+                data.Symbol, data.Bid, data.Ask, spread)
         }(symbol)
     }
 }
 
 func (da *DataAggregator) run() {
-    da.sendDiscordAlert("Market Data Aggregator started")
+    da.sendDiscordAlert("Realistic Market Data Aggregator started - monitoring small spreads")
     
-    ticker := time.NewTicker(2 * time.Second)
-    arbitrageTicker := time.NewTicker(10 * time.Second)
+    ticker := time.NewTicker(10 * time.Second)
+    arbitrageTicker := time.NewTicker(30 * time.Second)
     
-    for {
+    fmt.Println("🚀 Go Market Data Aggregator Started")
+    fmt.Println("📊 Monitoring realistic spreads (0.01-1.0%)")
+    fmt.Println("⚠️  Large spreads (>1%) flagged as errors")
+    
+    for i := 0; i < 20; i++ { // Run for limited time in demo
         select {
         case <-ticker.C:
+            fmt.Printf("\n[%s] Fetching market data...\n", time.Now().Format("15:04:05"))
             da.updateMarketData()
         case <-arbitrageTicker.C:
-            da.detectArbitrageOpportunities()
+            fmt.Printf("\n[%s] Analyzing arbitrage opportunities...\n", time.Now().Format("15:04:05"))
+            da.detectRealisticArbitrageOpportunities()
+        }
+        
+        if i%5 == 0 && i > 0 {
+            fmt.Printf("\n📈 Completed %d update cycles\n", i)
         }
     }
+    
+    fmt.Println("\n✅ Market data aggregator demo completed")
+    da.sendDiscordAlert("Market data aggregator demo completed - found realistic opportunities")
 }
 
 func main() {
