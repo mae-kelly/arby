@@ -1,76 +1,31 @@
 {
-  "name": "crypto-arb-bot",
+  "name": "ay",
   "version": "1.0.0",
-  "description": "Ultra-fast GPU-accelerated crypto arbitrage bot",
-  "main": "index.js",
+  "description": "",
+  "main": "hft_engine.js",
   "scripts": {
-    "compile": "truffle compile",
-    "migrate": "truffle migrate",
-    "test": "truffle test",
-    "deploy:mainnet": "truffle migrate --network mainnet",
-    "deploy:testnet": "truffle migrate --network goerli",
-    "verify": "truffle run verify",
-    "flatten": "truffle-flattener contracts/MultiDexArbitrage.sol > flat/MultiDexArbitrage.flat.sol",
-    "analyze": "slither .",
-    "coverage": "truffle run coverage",
-    "gas-report": "REPORT_GAS=true npm test"
-  },
-  "keywords": [
-    "arbitrage",
-    "defi",
-    "mev",
-    "flashloan",
-    "crypto",
-    "trading"
-  ],
-  "author": "Arbitrage Bot Team",
-  "license": "MIT",
-  "dependencies": {
-    "@openzeppelin/contracts": "^4.9.3",
-    "@uniswap/v2-core": "^1.0.1",
-    "@uniswap/v2-periphery": "^1.1.0-beta.0",
-    "@uniswap/v3-core": "^1.0.1",
-    "@uniswap/v3-periphery": "^1.4.3",
-    "@aave/core-v3": "^1.17.2",
-    "@balancer-labs/v2-vault": "^1.0.0",
-    "ethers": "^6.7.0",
-    "web3": "^4.0.3",
-    "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "truffle": "^5.11.1",
-    "truffle-flattener": "^1.6.0",
-    "@truffle/hdwallet-provider": "^2.1.13",
-    "ganache": "^7.9.0",
-    "chai": "^4.3.7",
-    "mocha": "^10.2.0",
-    "solidity-coverage": "^0.8.4",
-    "eth-gas-reporter": "^0.2.27",
-    "prettier": "^3.0.0",
-    "prettier-plugin-solidity": "^1.1.3",
-    "eslint": "^8.45.0",
-    "eslint-config-standard": "^17.1.0",
-    "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-promise": "^6.1.1",
-    "solhint": "^3.4.1",
-    "slither-analyzer": "^0.9.6",
-    "@nomiclabs/hardhat-ethers": "^2.2.3",
-    "@nomiclabs/hardhat-waffle": "^2.0.6",
-    "@nomiclabs/hardhat-etherscan": "^3.1.7",
-    "hardhat": "^2.17.0",
-    "hardhat-gas-reporter": "^1.0.9",
-    "hardhat-contract-sizer": "^2.10.0"
-  },
-  "engines": {
-    "node": ">=16.0.0",
-    "npm": ">=8.0.0"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/crypto-arb-bot.git"
+    "url": "git+https://github.com/mae-kelly/arby.git"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/yourusername/crypto-arb-bot/issues"
+    "url": "https://github.com/mae-kelly/arby/issues"
   },
-  "homepage": "https://github.com/yourusername/crypto-arb-bot#readme"
+  "homepage": "https://github.com/mae-kelly/arby#readme",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@aave/core-v3": "^1.19.3",
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "ethers": "^5.8.0",
+    "hardhat": "^3.0.0"
+  }
 }

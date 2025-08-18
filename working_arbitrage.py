@@ -1,5 +1,3 @@
-# Fix the data type issue
-cat > working_arbitrage.py << 'EOF'
 import asyncio
 import aiohttp
 from web3 import Web3
@@ -212,7 +210,3 @@ if __name__ == "__main__":
     print("🚀 Looking for rare profitable spreads > 0.1%\n")
     
     asyncio.run(detector.monitor_realistic_opportunities())
-EOF
-
-# Run the corrected version
-python3 working_arbitrage.py

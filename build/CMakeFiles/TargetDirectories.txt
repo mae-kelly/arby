@@ -1,4 +1,0 @@
-/Users/maevekelly/Downloads/ay/build/CMakeFiles/orderbook.dir
-/Users/maevekelly/Downloads/ay/build/CMakeFiles/mempool.dir
-/Users/maevekelly/Downloads/ay/build/CMakeFiles/edit_cache.dir
-/Users/maevekelly/Downloads/ay/build/CMakeFiles/rebuild_cache.dir
