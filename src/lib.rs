@@ -1,7 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
 
 #[derive(Debug, Clone)]
 pub struct SimpleMarket {
